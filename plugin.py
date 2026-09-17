@@ -1,7 +1,7 @@
 """MaiBot 消息贴表情插件 - 让麦麦学会对群聊消息贴表情。
 
 通过 Napcat API，由 LLM 自动选择合适的表情对群聊消息做出反应。
-兼容 MaiBot 1.0.0 + maibot-plugin-sdk 2.x。
+兼容 MaiBot 1.2.5+ + maibot-plugin-sdk 2.x。
 """
 
 import json
@@ -41,7 +41,7 @@ class PluginSectionConfig(PluginConfigBase):
     __ui_order__ = 0
 
     enabled: bool = Field(default=True, description="是否启用插件")
-    config_version: str = Field(default="2.1.1", description="配置版本")
+    config_version: str = Field(default="2.1.2", description="配置版本")
 
 
 class NapcatConfig(PluginConfigBase):
@@ -53,7 +53,7 @@ class NapcatConfig(PluginConfigBase):
     host: str = Field(default="napcat", description="Napcat 服务地址")
     port: int = Field(default=9999, description="Napcat 服务端口")
     token: str = Field(default="", description="Napcat 服务认证 Token")
-    llm_task: str = Field(default="planner", description="选表情用的模型任务或 SDK 支持的模型标识（如 planner / doubao-seed-1-6-25061）")
+    llm_task: str = Field(default="planner", description="选表情用的模型任务名或具体模型标识（如 planner / doubao-seed-1-6-25061），插件会自动区分")
 
 
 class ProactiveReactConfig(PluginConfigBase):
@@ -117,6 +117,9 @@ class MessageReactPlugin(MaiBotPlugin):
     """消息反应插件 - 为群聊消息添加表情反应。"""
 
     config_model = MessageReactConfig
+
+    # 宿主可用模型任务名缓存（首次调用 LLM 时查询一次，运行期不变）
+    _host_llm_tasks: set[str] | None = None
 
     # --------------------------------------------------------
     # 生命周期
@@ -515,14 +518,38 @@ class MessageReactPlugin(MaiBotPlugin):
             return "", f"解析 LLM 响应失败: {e}"
 
     async def _call_llm(self, prompt: str) -> dict[str, Any]:
-        """通过 SDK 公开 API 调用 LLM。"""
+        """通过 SDK 公开 API 调用 LLM。
+
+        MaiBot 1.2.5 起，任务名走 ``task_name``、``model`` 表示具体模型标识，两者
+        不能混用；所以按 ``llm_task`` 实际配的是哪一种来选参数。
+        """
         configured = str(self.config.napcat.llm_task or "").strip()
 
         if not configured:
             # 未配置 → 走系统默认链路
             return await self.ctx.llm.generate(prompt)
 
+        host_tasks = await self._get_host_llm_tasks()
+        if not host_tasks or configured in host_tasks:
+            # 任务名（默认值与文档示例都是任务名）；任务列表取不到时也按任务名兜底
+            return await self.ctx.llm.generate(prompt, task_name=configured)
+
+        # 具体模型标识 → Host 直选该模型
         return await self.ctx.llm.generate(prompt, model=configured)
+
+    async def _get_host_llm_tasks(self) -> set[str]:
+        """查询宿主可用的模型任务名，结果缓存。
+
+        查询失败（能力未授权 / 宿主不支持）返回空集合，调用方按任务名兜底。
+        """
+        if self._host_llm_tasks is None:
+            try:
+                tasks = await self.ctx.llm.get_available_models()
+                self._host_llm_tasks = {str(task).strip() for task in tasks if str(task).strip()}
+            except Exception as e:
+                self.ctx.logger.warning("查询宿主模型任务列表失败，按任务名处理: %s", e)
+                self._host_llm_tasks = set()
+        return self._host_llm_tasks
 
     @staticmethod
     def _extract_llm_text(llm_result: Any) -> str:

@@ -5,7 +5,7 @@
 > **原仓库**: [Ghost-chu/maiplug_message_react](https://github.com/Ghost-chu/maiplug_message_react)  
 > **一开仓库**: [putaojuju/maiplug_message_react-remake](https://github.com/putaojuju/maiplug_message_react-remake)
 >
-> 本仓库为原插件的二开版，已迁移至 MaiBot 1.0.0 + maibot-plugin-sdk 2.x，使用DeepSeek V4 Pro迁移，自用。
+> 本仓库为原插件的二开版，已迁移至 MaiBot 1.2.5 + maibot-plugin-sdk 2.x，使用DeepSeek V4 Pro迁移，自用。
 
 麦麦插件，让麦麦学会怎么给消息贴表情吧
 通过调用 Napcat API，让麦麦使用 LLM 决定为哪条消息贴哪个表情
@@ -16,10 +16,19 @@
 
 | 组件 | 最低版本 |
 |------|----------|
-| MaiBot | 1.0.0 |
+| MaiBot | 1.2.5 |
 | maibot-plugin-sdk | 2.5.1 |
 
+本仓库是 [DavidBlackCN/maibot-message-react-plugin](https://github.com/DavidBlackCN/maibot-message-react-plugin) 的 fork，插件 ID 为 `liccsu.maibot-message-react-plugin`，可以与上游插件同时安装（上游的 ID 是 `davidblackcn.maibot-message-react-plugin`）。
+
 ## 更新日志
+
+### v2.1.2
+- **修复**：MaiBot 1.2.5 起 `model` 表示具体模型标识、任务名必须走 `task_name`。原先统一传 `model=`，配了任务名（默认 `planner`）的实例会报「未找到名为 'planner' 的模型」，选表情全部失败
+- **调整**：首次调用 LLM 时查询宿主任务列表，配置值是任务名就传 `task_name`，是具体模型标识就传 `model`
+- **新增**：声明 `llm.get_available_models` 能力
+- **调整**：宿主最低版本提高到 1.2.5（更早的宿主不识别 `task_name`，会静默用错任务）
+- **调整**：插件 ID 改为 `liccsu.maibot-message-react-plugin`，与上游插件 ID 区分，可同时安装
 
 ### v2.1.1
 - **修复**：移除 Manifest 中 SDK 不支持的 `http_request` 能力声明
@@ -71,7 +80,7 @@
 ```toml
 [plugin]
 enabled = true
-config_version = "2.1.1"
+config_version = "2.1.2"
 
 [napcat]
 host = "napcat"
@@ -88,7 +97,9 @@ min_text_length = 2
 skip_self_messages = true
 ```
 
-`llm_task` 默认使用 `planner`。也可留空使用系统默认模型，填写其他 MaiBot 模型任务名（如 `replyer`、`utils`、`tool_use`），或填写当前 SDK/宿主支持通过 `model` 参数指定的模型标识。
+`llm_task` 默认使用 `planner`。可留空使用系统默认模型；填 MaiBot 模型任务名（如 `planner`、`replyer`、`utils`、`tool_use`）走宿主任务路由，或填具体模型标识（如 `doubao-seed-1-6-25061`）直接指定模型。
+
+插件会自动区分填的是哪一种：值是宿主已配置的任务名就经 `task_name` 传给宿主，否则按具体模型标识经 `model` 传给宿主。
 
 `[proactive]` 控制普通聊天中是否主动贴表情。该逻辑不发送文字回复，不会阻塞麦麦正常聊天，只是在群聊消息进入流程时低频尝试通过 Napcat 添加反应表情。
 
